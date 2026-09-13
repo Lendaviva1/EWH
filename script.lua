@@ -33,17 +33,19 @@ local Config = {
         }
     },
     ESP = {
-        Enabled = false, 
-        TeamCheck = true, 
-        Skeleton = true, 
-        Tracers = true, 
-        Names = true, 
-        Distance = true, 
-        HealthBars = true 
+        Enabled = false,
+        Highlight = true,
+        TeamCheck = true,
+        HUD = true,
+        ShowHP = true,
+        ShowDistance = true,
+        ShowSpeed = true,
+        ShowDirection = true
     },
     Settings = {
         DistanceUnit = "Studs", 
-        SpeedUnit = "Studs/s", 
+        SpeedUnit = "Studs/s",
+        MaxHighlights = 7
     },
     Visuals = {
         AccentColor = Color3.fromRGB(180, 0, 255),
@@ -406,13 +408,39 @@ createToggle(aimbotPage, "Enable Aimbot", "Aimbot", "Enabled")
 createToggle(aimbotPage, "Prediction", "Aimbot", "Prediction")
 createSlider(aimbotPage, "FOV Radius", "Aimbot", "FOVRadius", 10, 500)
 
+-- [ ESP PAGE - NEW LAYOUT ]
 createToggle(espPage, "ESP", "ESP", "Enabled")
 createToggle(espPage, "Team Check", "ESP", "TeamCheck")
-createToggle(espPage, "Skeleton", "ESP", "Skeleton")
-createToggle(espPage, "Lines", "ESP", "Tracers")
-createToggle(espPage, "Name", "ESP", "Names")
-createToggle(espPage, "Distance", "ESP", "Distance")
-createToggle(espPage, "Health", "ESP", "HealthBars")
+
+-- Highlight Section
+local highlightTitle = Instance.new("TextLabel")
+highlightTitle.Size = UDim2.new(1, -20, 0, 25)
+highlightTitle.BackgroundTransparency = 1
+highlightTitle.Text = "Highlight System"
+highlightTitle.TextColor3 = Config.Visuals.AccentColor
+highlightTitle.Font = Enum.Font.GothamBold
+highlightTitle.TextSize = 13
+highlightTitle.TextXAlignment = Enum.TextXAlignment.Left
+highlightTitle.Parent = espPage
+
+createToggle(espPage, "Highlight", "ESP", "Highlight")
+
+-- HUD Section
+local hudTitle = Instance.new("TextLabel")
+hudTitle.Size = UDim2.new(1, -20, 0, 25)
+hudTitle.BackgroundTransparency = 1
+hudTitle.Text = "Target HUD"
+hudTitle.TextColor3 = Config.Visuals.AccentColor
+hudTitle.Font = Enum.Font.GothamBold
+hudTitle.TextSize = 13
+hudTitle.TextXAlignment = Enum.TextXAlignment.Left
+hudTitle.Parent = espPage
+
+createToggle(espPage, "Show HUD", "ESP", "HUD")
+createToggle(espPage, "Show HP", "ESP", "ShowHP")
+createToggle(espPage, "Show Distance", "ESP", "ShowDistance")
+createToggle(espPage, "Show Speed", "ESP", "ShowSpeed")
+createToggle(espPage, "Show Direction", "ESP", "ShowDirection")
 
 -- [ CONFIG PAGE ]
 local configTitle = Instance.new("TextLabel")
@@ -474,7 +502,7 @@ logText.TextSize = 14
 logText.TextWrapped = true
 logText.TextXAlignment = Enum.TextXAlignment.Left
 logText.TextYAlignment = Enum.TextYAlignment.Top
-logText.Text = "v0.2 Beta:\n\n- ADDED: Tactical Target HUD (Real-time Info).\n- ADDED: Vector-based Directional Arrows.\n- ADDED: Unit conversion (Meters/KMH).\n- ADDED: Config Tab.\n- IMPROVED: Overall Stability."
+logText.Text = "v0.2 Beta - ESP Overhaul:\n\n- ADDED: Highlight system (7 closest targets).\n- ADDED: Dynamic Target HUD with customizable info.\n- ADDED: Configurable HUD display options.\n- IMPROVED: FOV visualization (white → red → purple).\n- REMOVED: Skeleton, Box, and Tracer ESP."
 logText.Parent = logPage
 
 expandBtn.MouseButton1Click:Connect(function()
@@ -498,7 +526,7 @@ end)
 -- [ TACTICAL HUD SYSTEM ]
 ---------------------------------------------------------
 local TargetHUD = Instance.new("Frame")
-TargetHUD.Size = UDim2.new(0, 160, 0, 90)
+TargetHUD.Size = UDim2.new(0, 180, 0, 120)
 TargetHUD.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 TargetHUD.BackgroundTransparency = 0.3
 TargetHUD.BorderSizePixel = 0
@@ -529,63 +557,119 @@ local function createHUDLabel(text, size, bold)
 end
 
 local HUD_Name = createHUDLabel("Target: ---", 14, true)
-local HUD_Dist = createHUDLabel("Dist: ---", 13, false)
-local HUD_Speed = createHUDLabel("Speed: ---", 13, false)
+local HUD_HP = createHUDLabel("HP: ---", 13, false)
+local HUD_HPBar = Instance.new("Frame")
+HUD_HPBar.Size = UDim2.new(0.8, 0, 0, 8)
+HUD_HPBar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+HUD_HPBar.Parent = TargetHUD
+Instance.new("UICorner", HUD_HPBar).CornerRadius = UDim.new(0, 3)
+
+local HUD_HPFill = Instance.new("Frame")
+HUD_HPFill.Size = UDim2.new(1, 0, 1, 0)
+HUD_HPFill.BackgroundColor3 = Color3.fromRGB(80, 200, 80)
+HUD_HPFill.BorderSizePixel = 0
+HUD_HPFill.Parent = HUD_HPBar
+Instance.new("UICorner", HUD_HPFill).CornerRadius = UDim.new(0, 3)
+
+local HUD_Dist = createHUDLabel("Dist: ---", 12, false)
+local HUD_Speed = createHUDLabel("Speed: ---", 12, false)
 local HUD_Dir = createHUDLabel("Dir: ---", 14, true)
+
+---------------------------------------------------------
+-- [ HIGHLIGHT SYSTEM ]
+---------------------------------------------------------
+local HighlightedPlayers = {}
+
+local function removeHighlight(player)
+    if HighlightedPlayers[player] then
+        local highlight = HighlightedPlayers[player]
+        highlight:Destroy()
+        HighlightedPlayers[player] = nil
+    end
+end
+
+local function addHighlight(player)
+    if not player.Character then return end
+    removeHighlight(player)
+    
+    local highlight = Instance.new("Highlight")
+    highlight.Parent = player.Character
+    highlight.FillColor = Config.Visuals.AccentColor
+    highlight.FillTransparency = 0.45
+    highlight.OutlineTransparency = 0
+    highlight.DepthMode = Enum.HighlightDepthMode.Always
+    
+    HighlightedPlayers[player] = highlight
+end
+
+local function updateHighlights()
+    if not Config.ESP.Enabled or not Config.ESP.Highlight then
+        for player, _ in pairs(HighlightedPlayers) do
+            removeHighlight(player)
+        end
+        return
+    end
+    
+    local playerDistances = {}
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            if Config.ESP.TeamCheck and player.Team == LocalPlayer.Team then continue end
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            if hrp and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                local dist = (hrp.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+                table.insert(playerDistances, {player = player, distance = dist})
+            end
+        end
+    end
+    
+    table.sort(playerDistances, function(a, b) return a.distance < b.distance end)
+    
+    local highlightCount = 0
+    for _, data in ipairs(playerDistances) do
+        if highlightCount >= Config.Settings.MaxHighlights then break end
+        if not HighlightedPlayers[data.player] then
+            addHighlight(data.player)
+        end
+        highlightCount = highlightCount + 1
+    end
+    
+    for player, _ in pairs(HighlightedPlayers) do
+        local found = false
+        for _, data in ipairs(playerDistances) do
+            if data.player == player then
+                found = true
+                break
+            end
+        end
+        if not found then
+            removeHighlight(player)
+        end
+    end
+end
+
+Players.PlayerRemoving:Connect(function(player)
+    removeHighlight(player)
+end)
 
 ---------------------------------------------------------
 -- [ DRAWING SYSTEMS ]
 ---------------------------------------------------------
 local FovCircle = (Drawing and Drawing.new("Circle")) or nil
-if FovCircle then FovCircle.Thickness = 1; FovCircle.Filled = false end
+if FovCircle then 
+    FovCircle.Thickness = 2
+    FovCircle.Filled = false
+end
 
 local TargetMarker = (Drawing and Drawing.new("Circle")) or nil
-if TargetMarker then TargetMarker.Radius = 4; TargetMarker.Thickness = 2; TargetMarker.Filled = true; TargetMarker.Visible = false end
-
-local ESP_Objects = {}
-local function removeESP(player)
-    if ESP_Objects[player] then
-        for _, o in pairs(ESP_Objects[player]) do 
-            if type(o) == "table" then
-                for _, line in pairs(o) do line:Remove() end
-            elseif type(o) == "userdata" then
-                o:Remove()
-            end
-        end
-        ESP_Objects[player] = nil
-    end
+if TargetMarker then 
+    TargetMarker.Radius = 4
+    TargetMarker.Thickness = 2
+    TargetMarker.Filled = true
+    TargetMarker.Visible = false
 end
-
-local function createESP(player)
-    if not Drawing then return end
-    ESP_Objects[player] = {
-        Tracer = Drawing.new("Line"),
-        Name = Drawing.new("Text"), Dist = Drawing.new("Text"),
-        HealthBar = Drawing.new("Square"), HealthFill = Drawing.new("Square"),
-        Skeleton = {
-            HeadToTorso = Drawing.new("Line"),
-            TorsoToLeftArm = Drawing.new("Line"),
-            TorsoToRightArm = Drawing.new("Line"),
-            TorsoToLeftLeg = Drawing.new("Line"),
-            TorsoToRightLeg = Drawing.new("Line")
-        }
-    }
-    ESP_Objects[player].Tracer.Thickness = 1
-    ESP_Objects[player].Name.Size = 16
-    ESP_Objects[player].Name.Center = true
-    ESP_Objects[player].Dist.Size = 16
-    ESP_Objects[player].Dist.Center = true
-    ESP_Objects[player].HealthBar.Thickness = 2
-    ESP_Objects[player].HealthFill.Thickness = 2
-    for _, line in pairs(ESP_Objects[player].Skeleton) do line.Thickness = 1 end
-end
-
-for _, v in pairs(Players:GetPlayers()) do if v ~= LocalPlayer then createESP(v) end end
-Players.PlayerAdded:Connect(createESP)
-Players.PlayerRemoving:Connect(removeESP)
 
 local function getEntityColor(player)
-    if Config.Aimbot.TeamCheck and player.Team then
+    if Config.ESP.TeamCheck and player.Team then
         return (LocalPlayer.Team == player.Team) and Color3.fromRGB(50, 255, 50) or Color3.fromRGB(255, 50, 50)
     end
     return Color3.fromRGB(255, 255, 255)
@@ -641,46 +725,81 @@ RunService.RenderStepped:Connect(function()
         weaponInfo.Text = "No Weapon Equipped"
     end
 
+    updateHighlights()
+
     local target = getClosestPlayer()
     
-    if target and target.Character then
+    if target and target.Character and Config.ESP.HUD then
         local part = getBestPart(target.Character)
         local hrp = target.Character:FindFirstChild("HumanoidRootPart")
         if part and hrp then
             local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
             if onScreen then
-                if TargetMarker then
-                    TargetMarker.Position = Vector2.new(pos.X, pos.Y)
-                    TargetMarker.Color = Config.Visuals.AccentColor
-                    TargetMarker.Visible = true
-                end
                 TargetHUD.Visible = true
-                TargetHUD.Position = UDim2.new(0, pos.X + 20, 0, pos.Y - 45)
-                local distVal = (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character.HumanoidRootPart.Position - hrp.Position).Magnitude
+                
+                -- Dynamic positioning
+                local hudOffsetX = math.random(-50, 50)
+                local hudOffsetY = math.random(-30, 30)
+                TargetHUD.Position = UDim2.new(0, pos.X + 20 + hudOffsetX, 0, pos.Y - 45 + hudOffsetY)
+                
+                local distVal = (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character.HumanoidRootPart.Position - hrp.Position).Magnitude or 0
+                
                 HUD_Name.Text = "Target: " .. target.Name
-                HUD_Dist.Text = "Dist: " .. formatDistance(distVal)
-                HUD_Speed.Text = "Speed: " .. formatSpeed(hrp.Velocity.Magnitude)
-                HUD_Dir.Text = "Dir: " .. getDirectionArrow(hrp)
+                
+                if Config.ESP.ShowHP then
+                    local healthPct = target.Character.Humanoid.Health / target.Character.Humanoid.MaxHealth
+                    HUD_HP.Text = string.format("HP: %.0f/%.0f", target.Character.Humanoid.Health, target.Character.Humanoid.MaxHealth)
+                    local barColor = Color3.fromHSV(healthPct * 0.3, 1, 1)
+                    tweenObj(HUD_HPFill, {Size = UDim2.new(math.clamp(healthPct, 0, 1), 0, 1, 0), BackgroundColor3 = barColor}, 0.1)
+                    HUD_HPBar.Visible = true
+                    HUD_HP.Visible = true
+                else
+                    HUD_HPBar.Visible = false
+                    HUD_HP.Visible = false
+                end
+                
+                if Config.ESP.ShowDistance then
+                    HUD_Dist.Text = "Dist: " .. formatDistance(distVal)
+                    HUD_Dist.Visible = true
+                else
+                    HUD_Dist.Visible = false
+                end
+                
+                if Config.ESP.ShowSpeed then
+                    HUD_Speed.Text = "Speed: " .. formatSpeed(hrp.Velocity.Magnitude)
+                    HUD_Speed.Visible = true
+                else
+                    HUD_Speed.Visible = false
+                end
+                
+                if Config.ESP.ShowDirection then
+                    HUD_Dir.Text = "Dir: " .. getDirectionArrow(hrp)
+                    HUD_Dir.Visible = true
+                else
+                    HUD_Dir.Visible = false
+                end
             else
                 TargetHUD.Visible = false
-                if TargetMarker then TargetMarker.Visible = false end
             end
         else
             TargetHUD.Visible = false
-            if TargetMarker then TargetMarker.Visible = false end
         end
     else
         TargetHUD.Visible = false
-        if TargetMarker then TargetMarker.Visible = false end
     end
 
     if FovCircle then
         FovCircle.Position = UserInputService:GetMouseLocation()
         FovCircle.Radius = Config.Aimbot.FOVRadius
         FovCircle.Visible = Config.Aimbot.ShowFOV
-        if not target then FovCircle.Color = Color3.fromRGB(255, 255, 255)
-        elseif getBestPart(target.Character) and isVisible(getBestPart(target.Character)) then FovCircle.Color = Color3.fromRGB(180, 0, 255)
-        else FovCircle.Color = Color3.fromRGB(255, 0, 0) end
+        
+        if not target then
+            FovCircle.Color = Color3.fromRGB(255, 255, 255)
+        elseif getBestPart(target.Character) and isVisible(getBestPart(target.Character)) then
+            FovCircle.Color = Config.Visuals.AccentColor
+        else
+            FovCircle.Color = Color3.fromRGB(255, 50, 50)
+        end
     end
 
     if Config.Aimbot.Enabled and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
@@ -707,52 +826,6 @@ RunService.RenderStepped:Connect(function()
                 end
                 Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, aimPos), math.clamp(1 / Config.Aimbot.Smoothness, 0.05, 1))
             end
-        end
-    end
-
-    for player, esp in pairs(ESP_Objects) do
-        local show = false
-        if Config.ESP.Enabled and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
-            if not (Config.ESP.TeamCheck and player.Team == LocalPlayer.Team) then
-                local hrp = player.Character.HumanoidRootPart
-                local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
-                if onScreen then
-                    show = true
-                    local color = getEntityColor(player)
-                    local distVal = math.floor((LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character.HumanoidRootPart.Position - hrp.Position).Magnitude or 0)
-                    if Config.ESP.Tracers then
-                        esp.Tracer.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y); esp.Tracer.To = Vector2.new(pos.X, pos.Y); esp.Tracer.Color = color; esp.Tracer.Visible = true
-                    else esp.Tracer.Visible = false end
-                    if Config.ESP.Names then
-                        esp.Name.Text = player.Name .. " [" .. math.floor(player.Character.Humanoid.Health) .. " HP]"; esp.Name.Position = Vector2.new(pos.X, pos.Y - (1500/pos.Z) - 20); esp.Name.Color = color; esp.Name.Visible = true
-                    else esp.Name.Visible = false end
-                    if Config.ESP.HealthBars then
-                        local healthPct = player.Character.Humanoid.Health / player.Character.Humanoid.MaxHealth
-                        local barColor = Color3.fromHSV(healthPct * 0.3, 1, 1)
-                        local barWidth = 40 * (1500/pos.Z)/100
-                        esp.HealthBar.Size = Vector2.new(barWidth, 4); esp.HealthBar.Position = Vector2.new(pos.X - barWidth/2, pos.Y + (1500/pos.Z) - 5); esp.HealthBar.Color = Color3.fromRGB(50, 50, 50); esp.HealthBar.Visible = true
-                        esp.HealthFill.Size = Vector2.new(barWidth * healthPct, 4); esp.HealthFill.Position = esp.HealthBar.Position; esp.HealthFill.Color = barColor; esp.HealthFill.Visible = true
-                    else esp.HealthBar.Visible = false; esp.HealthFill.Visible = false end
-                    if Config.ESP.Distance then
-                        esp.Dist.Text = distVal .. " studs"; esp.Dist.Position = Vector2.new(pos.X, pos.Y + (1500/pos.Z) + 10); esp.Dist.Color = color; esp.Dist.Visible = true
-                    else esp.Dist.Visible = false end
-                    if Config.ESP.Skeleton then
-                        local head = player.Character:FindFirstChild("Head")
-                        local torso = player.Character:FindFirstChild("UpperTorso") or player.Character:FindFirstChild("Torso")
-                        if head and torso then
-                            local hPos, _ = Camera:WorldToViewportPoint(head.Position)
-                            local tPos, _ = Camera:WorldToViewportPoint(torso.Position)
-                            esp.Skeleton.HeadToTorso.From = Vector2.new(hPos.X, hPos.Y); esp.Skeleton.HeadToTorso.To = Vector2.new(tPos.X, tPos.Y); esp.Skeleton.HeadToTorso.Color = color; esp.Skeleton.HeadToTorso.Visible = true
-                        end
-                    else
-                        for _, line in pairs(esp.Skeleton) do line.Visible = false end
-                    end
-                end
-            end
-        end
-        if not show then 
-            esp.Tracer.Visible = false; esp.Name.Visible = false; esp.Dist.Visible = false; esp.HealthBar.Visible = false; esp.HealthFill.Visible = false;
-            for _, line in pairs(esp.Skeleton) do line.Visible = false end
         end
     end
 end)
